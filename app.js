@@ -124,6 +124,18 @@ async function connectFT260() {
   await d.sendFeatureReport(0xA1, new Uint8Array([0x02, 0x01]));
 
   dev = d;
+
+  // Enable I2C mode (Feature report 0xA1)
+  try {
+    await sendFeaturePadded(0xA1, new Uint8Array([0x02, 0x01]), 16);
+    log("I2C enabled.");
+  } catch (e) {
+    // If your HID stack requires full-size feature reports, try 64
+    await sendFeaturePadded(0xA1, new Uint8Array([0x02, 0x01]), 64);
+    log("I2C enabled (64-byte feature report).");
+  }
+
+  
   log(`Connected (I2C): ${dev.productName}`);
   log("I2C enabled.");
 }
@@ -142,17 +154,29 @@ async function disconnectFT260() {
 async function setI2cClock(khz) {
   if (!dev) throw new Error("Not connected.");
   khz = Number(khz);
+
   if (!Number.isFinite(khz) || khz < 60 || khz > 3400) {
     throw new Error("Clock must be 60–3400 kHz.");
   }
+
   const lo = khz & 0xFF;
   const hi = (khz >> 8) & 0xFF;
 
-  await dev.sendFeatureReport(FT260_SYSTEM_SETTINGS, new Uint8Array([
-    FT260_SET_I2C_CLOCK_SPEED, lo, hi
-  ]));
+  // Try 16 bytes first; fall back to 64 if needed
+  try {
+    await sendFeaturePadded(0xA1, new Uint8Array([0x22, lo, hi]), 16);
+  } catch {
+    await sendFeaturePadded(0xA1, new Uint8Array([0x22, lo, hi]), 64);
+  }
 
   log(`I2C clock set to ${khz} kHz.`);
+}
+
+
+async function sendFeaturePadded(reportId, data, totalLen = 16) {
+  const buf = new Uint8Array(totalLen);
+  buf.set(data.slice(0, totalLen), 0);
+  await dev.sendFeatureReport(reportId, buf);
 }
 
 async function i2cWrite(addr7, bytes, flag = FT260_FLAG_START_STOP) {
