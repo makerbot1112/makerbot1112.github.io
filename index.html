@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>FT260 WebHID → PMBus (Demo)</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 20px; line-height: 1.35; }
+    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+    label { display: flex; gap: 8px; align-items: center; }
+    input { width: 120px; padding: 6px 8px; }
+    button { padding: 8px 12px; cursor: pointer; }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    pre { background:#f6f6f6; padding:12px; border-radius:10px; height: 340px; overflow:auto; }
+    .hint { color: #444; font-size: 0.95rem; }
+    code { background:#f1f1f1; padding: 2px 6px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h2>FT260 WebHID → I²C/PMBus</h2>
+  <p class="hint">
+    Requirements: Chrome/Edge, HTTPS (GitHub Pages is fine). Plug in FT260, then click <b>Connect</b>.
+  </p>
+
+  <div class="row">
+    <button id="btnConnect">Connect FT260</button>
+    <button id="btnDisconnect" disabled>Disconnect</button>
+    <label>I²C kHz: <input id="i2cKhz" value="400" /></label>
+    <button id="btnSetClock" disabled>Set Clock</button>
+  </div>
+
+  <div class="row">
+    <label>7-bit Addr (hex): <input id="addr" value="5A" /></label>
+    <button id="btnReadVout" disabled>PMBus READ_VOUT (0x8B)</button>
+    <button id="btnReadStatusWord" disabled>PMBus STATUS_WORD (0x79)</button>
+  </div>
+
+  <p class="hint">
+    If you see “wrong interface/collection”, unplug/replug the FT260 and select the other entry.
+    (FT260 sometimes exposes multiple HID collections.)
+  </p>
+
+  <pre id="log"></pre>
+
+  <script src="./app.js"></script>
+</body>
+</html>
