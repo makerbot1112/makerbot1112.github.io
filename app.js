@@ -102,6 +102,14 @@ async function connectFT260() {
   const picked = await navigator.hid.requestDevice({
     filters: [{ vendorId: 0x0403, productId: 0x6030 }]
   });
+
+  picked.forEach((d, i) => {
+  const outs = d.collections.flatMap(c => c.outputReports.map(r => r.reportId));
+  const feats = d.collections.flatMap(c => c.featureReports.map(r => r.reportId));
+  log(`Picked[${i}] outs=${outs.map(x=>x.toString(16))} feats=${feats.map(x=>x.toString(16))}`);
+});
+
+  
   if (!picked.length) throw new Error("No device selected.");
 
   // Prefer the HID interface that exposes I2C report IDs.
