@@ -98,52 +98,36 @@ function onInputReport(e) {
 async function connectFT260() {
   if (!("hid" in navigator)) throw new Error("WebHID not supported. Use Chrome/Edge.");
 
-  // Ask user to select FT260. TIP: if two entries appear, select BOTH (Ctrl/Shift).
   const picked = await navigator.hid.requestDevice({
     filters: [{ vendorId: 0x0403, productId: 0x6030 }]
   });
-
-  picked.forEach((d, i) => {
-  const outs = d.collections.flatMap(c => c.outputReports.map(r => r.reportId));
-  const feats = d.collections.flatMap(c => c.featureReports.map(r => r.reportId));
-  log(`Picked[${i}] outs=${outs.map(x=>x.toString(16))} feats=${feats.map(x=>x.toString(16))}`);
-});
-
-  
   if (!picked.length) throw new Error("No device selected.");
 
-  // Prefer the HID interface that exposes I2C report IDs.
-  const isFt260I2cInterface = (d) =>
-    d.collections?.some(c =>
-      c.featureReports?.some(r => r.reportId === 0xA1) ||          // SYSTEM_SETTINGS
-      c.outputReports?.some(r => r.reportId === 0xC2) ||           // I2C_READ_REQ
-      c.outputReports?.some(r => r.reportId >= 0xD0 && r.reportId <= 0xDE) // I2C data writes
-    );
+  // Pick the entry that clearly exposes I2C reports: C2 and D0..DE
+  const isI2c = (d) => {
+    const outs = d.collections?.flatMap(c => c.outputReports?.map(r => r.reportId) ?? []) ?? [];
+    const feats = d.collections?.flatMap(c => c.featureReports?.map(r => r.reportId) ?? []) ?? [];
 
-  let candidate = picked.find(isFt260I2cInterface) || picked[0];
+    const hasC2 = outs.includes(0xC2);
+    const hasDRange = outs.some(x => x >= 0xD0 && x <= 0xDE);
+    const hasA1 = feats.includes(0xA1); // system settings (needed to enable I2C)
 
-  // Open & validate by sending the I2C enable feature report.
-  // If it fails, try any other picked devices.
-  for (const d of [candidate, ...picked.filter(x => x !== candidate)]) {
-    try {
-      await d.open();
-      d.addEventListener("inputreport", onInputReport);
+    return hasC2 && hasDRange && hasA1;
+  };
 
-      // Enable I2C mode (Feature report 0xA1)
-      await d.sendFeatureReport(0xA1, new Uint8Array([0x02, 0x01])); // SET_I2C_MODE, enable=1
+  const d = picked.find(isI2c) ?? picked[0];
 
-      dev = d;
-      log(`Connected (I2C): ${dev.productName} VID=0x${dev.vendorId.toString(16)} PID=0x${dev.productId.toString(16)}`);
-      log("I2C enabled.");
-      return;
-    } catch (e) {
-      try { d.removeEventListener("inputreport", onInputReport); } catch {}
-      try { await d.close(); } catch {}
-    }
-  }
+  await d.open();
+  d.addEventListener("inputreport", onInputReport);
 
-  throw new Error("Could not open an FT260 interface that supports I2C reports. Select the other FT260 entry in the picker.");
+  // Enable I2C mode (feature report 0xA1)
+  await d.sendFeatureReport(0xA1, new Uint8Array([0x02, 0x01]));
+
+  dev = d;
+  log(`Connected (I2C): ${dev.productName}`);
+  log("I2C enabled.");
 }
+
 
 
 async function disconnectFT260() {
