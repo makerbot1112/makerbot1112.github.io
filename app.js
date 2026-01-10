@@ -121,7 +121,7 @@ async function connectFT260() {
   d.addEventListener("inputreport", onInputReport);
 
   // Enable I2C mode (feature report 0xA1)
-  await d.sendFeatureReport(0xA1, new Uint8Array([0x02, 0x01]));
+  //await d.sendFeatureReport(0xA1, new Uint8Array([0x02, 0x01]));
 
   dev = d;
 
