@@ -193,6 +193,39 @@ async function getI2cStatus() {
   return data;
 }
 
+function parseI2cStatus(bytes) {
+  // Expect at least [0]=0xC0, [1]=status, [2]=speedLSB, [3]=speedMSB
+  const status = bytes[1] ?? 0;
+  const speedKhz = ((bytes[3] ?? 0) << 8) | (bytes[2] ?? 0);
+
+  return {
+    rawStatus: status,
+    speedKhz,
+    controllerBusy: !!(status & (1 << 0)),
+    error:          !!(status & (1 << 1)),
+    addrNack:       !!(status & (1 << 2)),
+    dataNack:       !!(status & (1 << 3)),
+    arbLost:        !!(status & (1 << 4)),
+    idle:           !!(status & (1 << 5)),
+    busBusy:        !!(status & (1 << 6)),
+  };
+}
+
+async function assertDevicePresent(addr7) {
+  const s = await getI2cStatus();
+  const st = parseI2cStatus(s);
+
+  if (st.addrNack) {
+    throw new Error(`No device ACK at address 0x${hex2(addr7)} (FT260 reports address NACK).`);
+  }
+  if (st.dataNack) {
+    throw new Error(`Device at 0x${hex2(addr7)} NACKed data (wrong command / sequence / device state).`);
+  }
+  if (st.error) {
+    throw new Error(`I2C error (status=0x${hex2(st.rawStatus)}).`);
+  }
+}
+
 
 async function i2cWrite(addr7, bytes, flag = FT260_FLAG_START_STOP) {
   if (!dev) throw new Error("Not connected.");
@@ -243,7 +276,14 @@ async function pmbusReadWord(addr7, command) {
   // Read 2 bytes with repeated start + stop
   const data = await i2cRead(addr7, 2, FT260_FLAG_START_STOP_REPEATED);
 
-  await getI2cStatus()
+  const s = await getI2cStatus();
+  const st = parseI2cStatus(s);
+  
+  log(`I2C status=0x${hex2(st.rawStatus)} speed=${st.speedKhz}kHz addrNack=${st.addrNack} dataNack=${st.dataNack}`);
+  
+  if (st.addrNack) {
+    log("No PMBus device detected at that address.");
+  }
 
   // SMBus “read word” is little-endian
   const word = data[0] | (data[1] << 8);
