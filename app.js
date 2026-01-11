@@ -179,6 +179,21 @@ async function sendFeaturePadded(reportId, data, totalLen = 16) {
   await dev.sendFeatureReport(reportId, buf);
 }
 
+async function getFeaturePadded(reportId, totalLen = 16) {
+  const buf = await dev.receiveFeatureReport(reportId); // returns DataView
+  // Some browsers return only actual bytes; normalize to Uint8Array
+  return new Uint8Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+}
+
+async function getI2cStatus() {
+  // 0xC0 is advertised by your I2C interface; try reading it.
+  // If your environment requires a “request” via 0xA1 first, we can add that later.
+  const data = await getFeaturePadded(0xC0);
+  log(`I2C_STATUS (0xC0): ${[...data].map(b => hex2(b)).join(" ")}`);
+  return data;
+}
+
+
 async function i2cWrite(addr7, bytes, flag = FT260_FLAG_START_STOP) {
   if (!dev) throw new Error("Not connected.");
   if (bytes.length > FT260_WR_DATA_MAX) throw new Error("Write > 60 bytes not supported in this demo.");
@@ -228,9 +243,45 @@ async function pmbusReadWord(addr7, command) {
   // Read 2 bytes with repeated start + stop
   const data = await i2cRead(addr7, 2, FT260_FLAG_START_STOP_REPEATED);
 
+  await getI2cStatus()
+
   // SMBus “read word” is little-endian
   const word = data[0] | (data[1] << 8);
   return { raw: data, word };
+}
+
+async function probeAddress(addr7) {
+  try {
+    // "Command-only" write. If device NACKs address, a proper bridge should error or status should show NACK.
+    await i2cWrite(addr7, new Uint8Array([0x00]), FT260_FLAG_START_STOP); // 0x00 is harmless for probing; change if you prefer
+    // If we got here, we *likely* saw an ACK at the transport level.
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function scanI2cBus() {
+  if (!dev) throw new Error("Not connected.");
+
+  log("Scanning I2C bus (0x03..0x77)...");
+  const found = [];
+
+  for (let a = 0x03; a <= 0x77; a++) {
+    // small delay helps some bridges avoid hammering the bus
+    await new Promise(r => setTimeout(r, 5));
+
+    const ok = await probeAddress(a);
+    if (ok) found.push(a);
+  }
+
+  if (!found.length) {
+    log("Scan result: no I2C devices detected.");
+  } else {
+    log("Scan result: " + found.map(a => "0x" + hex2(a)).join(", "));
+  }
+
+  return found;
 }
 
 // --- UI wiring ---
