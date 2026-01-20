@@ -360,11 +360,21 @@ $("btnSetClock").addEventListener("click", async () => {
 $("btnReadVout").addEventListener("click", async () => {
   try {
     const addr7 = parseHexAddr7($("addr").value);
-    const READ_VOUT = 0x8B;
 
-    const { raw, word } = await pmbusReadWord(addr7, READ_VOUT);
-    log(`PMBus READ_VOUT raw=[${[...raw].map(b => hex2(b)).join(" ")}] word=0x${hex2(word, 4)} (${word})`);
-    log("Note: Decode using VOUT_MODE (Linear/Direct) for real volts.");
+    const r = await pmbusReadVoutDecoded(addr7);
+
+    log(`PMBus VOUT_MODE=0x${hex2(r.voutMode)} (mode=${r.decoded.mode}, N=${r.decoded.N})`);
+    log(`PMBus READ_VOUT raw=[${[...r.vraw].map(b => hex2(b)).join(" ")}] word=0x${hex2(r.vword, 4)} (${r.vword})`);
+
+    if (r.decoded.ok) {
+      log(`VOUT = ${r.decoded.volts} V`);
+    } else {
+      log(`VOUT decode not available: ${r.decoded.reason}`);
+    }
+
+    // Optional: read and log I2C status to detect NACK/no-device
+    // const st = parseI2cStatus(await getI2cStatus());
+    // log(`I2C status=0x${hex2(st.rawStatus)} addrNack=${st.addrNack} dataNack=${st.dataNack}`);
   } catch (e) {
     log(`ERROR: ${e.message || String(e)}`);
   }
@@ -381,6 +391,55 @@ $("btnReadStatusWord").addEventListener("click", async () => {
     log(`ERROR: ${e.message || String(e)}`);
   }
 });
+
+async function pmbusReadByte(addr7, command) {
+  // Write command (no stop), then read 1 byte (repeated start + stop)
+  await i2cWrite(addr7, new Uint8Array([command & 0xFF]), FT260_FLAG_START);
+  const data = await i2cRead(addr7, 1, FT260_FLAG_START_STOP_REPEATED);
+  return data[0];
+}
+
+function signExtend(value, bits) {
+  // Sign-extend an N-bit number to JS 32-bit signed int
+  const shift = 32 - bits;
+  return (value << shift) >> shift;
+}
+
+function decodeVoutFromVoutMode(readVoutWord, voutModeByte) {
+  const mode = (voutModeByte >> 5) & 0x07;
+  const exp5 = voutModeByte & 0x1F;         // 5-bit exponent
+  const N = signExtend(exp5, 5);            // signed exponent
+
+  if (mode === 0) {
+    // Linear mode: V = raw * 2^N
+    const volts = readVoutWord * Math.pow(2, N);
+    return { ok: true, mode: "LINEAR", N, volts };
+  }
+
+  if (mode === 2) {
+    // DIRECT mode: V = (raw - b) / m * 10^R  (requires device coefficients)
+    return { ok: false, mode: "DIRECT", N, reason: "DIRECT mode requires M, B, R coefficients (device-specific)." };
+  }
+
+  if (mode === 1) {
+    // VID mode: encoding depends on VID code table (VRM version), device-specific
+    return { ok: false, mode: "VID", N, reason: "VID mode decoding depends on device VID table/VRM version." };
+  }
+
+  return { ok: false, mode: `UNKNOWN(${mode})`, N, reason: "Unsupported VOUT_MODE encoding." };
+}
+
+async function pmbusReadVoutDecoded(addr7) {
+  const VOUT_MODE = 0x20;
+  const READ_VOUT = 0x8B;
+
+  const voutMode = await pmbusReadByte(addr7, VOUT_MODE);
+  const { raw: vraw, word: vword } = await pmbusReadWord(addr7, READ_VOUT);
+
+  const decoded = decodeVoutFromVoutMode(vword, voutMode);
+
+  return { voutMode, vraw, vword, decoded };
+}
 
 // Initial state
 setUiConnected(false);
